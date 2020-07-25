@@ -1,0 +1,3 @@
+[submodule "azure-sphere-samples-hardware"]
+	path = azure-sphere-samples-hardware
+	url = https://github.com/matsujirushi/azure-sphere-samples-hardware
