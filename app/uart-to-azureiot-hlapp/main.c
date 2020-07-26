@@ -22,8 +22,6 @@
 #include "Exit.h"
 #include "Termination.h"
 
-// applibs_versions.h defines the API struct versions to use for applibs APIs.
-#include "applibs_versions.h"
 #include <applibs/uart.h>
 #include <applibs/gpio.h>
 #include <applibs/log.h>
