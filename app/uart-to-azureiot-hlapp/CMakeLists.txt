@@ -9,7 +9,7 @@ azsphere_configure_api(TARGET_API_SET "5")
 add_subdirectory(../../lib/eventloop_timer_utilities lib/eventloop_timer_utilities)
 
 # Executable
-add_executable(${PROJECT_NAME} main.c)
+add_executable(${PROJECT_NAME} main.c Exit.c Termination.c)
 target_link_libraries(${PROJECT_NAME} applibs pthread gcc_s c eventloop_timer_utilities)
 
 azsphere_target_hardware_definition(${PROJECT_NAME} TARGET_DIRECTORY "../../azure-sphere-samples-hardware/mt3620_rdb" TARGET_DEFINITION "sample_hardware.json")

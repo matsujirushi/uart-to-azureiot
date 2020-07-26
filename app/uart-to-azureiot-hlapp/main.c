@@ -19,6 +19,8 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include "Exit.h"
+#include "Termination.h"
 
 // applibs_versions.h defines the API struct versions to use for applibs APIs.
 #include "applibs_versions.h"
@@ -70,25 +72,10 @@ EventLoopTimer* buttonPollTimer = NULL;
 // State variables
 static GPIO_Value_Type buttonState = GPIO_Value_High;
 
-// Termination state
-static volatile sig_atomic_t exitCode = ExitCode_Success;
-
-static void TerminationHandler(int signalNumber);
 static void SendUartMessage(int uartFd, const char* dataToSend);
 static void ButtonTimerEventHandler(EventLoopTimer* timer);
 static void UartEventHandler(EventLoop* el, int fd, EventLoop_IoEvents events, void* context);
-static ExitCode InitPeripheralsAndHandlers(void);
 static void CloseFdAndPrintError(int fd, const char* fdName);
-static void ClosePeripheralsAndHandlers(void);
-
-/// <summary>
-///     Signal handler for termination requests. This handler must be async-signal-safe.
-/// </summary>
-static void TerminationHandler(int signalNumber)
-{
-    // Don't use Log_Debug here, as it is not guaranteed to be async-signal-safe.
-    exitCode = ExitCode_TermHandler_SigTerm;
-}
 
 /// <summary>
 ///     Helper function to send a fixed message via the given UART.
@@ -109,7 +96,7 @@ static void SendUartMessage(int uartFd, const char* dataToSend)
         ssize_t bytesSent = write(uartFd, remainingMessageToSend, bytesLeftToSend);
         if (bytesSent == -1) {
             Log_Debug("ERROR: Could not write to UART: %s (%d).\n", strerror(errno), errno);
-            exitCode = ExitCode_SendMessage_Write;
+            Exit_DoExit(ExitCode_SendMessage_Write);
             return;
         }
 
@@ -125,7 +112,7 @@ static void SendUartMessage(int uartFd, const char* dataToSend)
 static void ButtonTimerEventHandler(EventLoopTimer* timer)
 {
     if (ConsumeEventLoopTimerEvent(timer) != 0) {
-        exitCode = ExitCode_ButtonTimer_Consume;
+        Exit_DoExit(ExitCode_ButtonTimer_Consume);
         return;
     }
 
@@ -134,7 +121,7 @@ static void ButtonTimerEventHandler(EventLoopTimer* timer)
     int result = GPIO_GetValue(gpioButtonFd, &newButtonState);
     if (result != 0) {
         Log_Debug("ERROR: Could not read button GPIO: %s (%d).\n", strerror(errno), errno);
-        exitCode = ExitCode_ButtonTimer_GetValue;
+        Exit_DoExit(ExitCode_ButtonTimer_GetValue);
         return;
     }
 
@@ -163,7 +150,7 @@ static void UartEventHandler(EventLoop* el, int fd, EventLoop_IoEvents events, v
     bytesRead = read(uartFd, receiveBuffer, receiveBufferSize);
     if (bytesRead == -1) {
         Log_Debug("ERROR: Could not read UART: %s (%d).\n", strerror(errno), errno);
-        exitCode = ExitCode_UartEvent_Read;
+        Exit_DoExit(ExitCode_UartEvent_Read);
         return;
     }
 
@@ -181,17 +168,14 @@ static void UartEventHandler(EventLoop* el, int fd, EventLoop_IoEvents events, v
 ///     ExitCode_Success if all resources were allocated successfully; otherwise another
 ///     ExitCode value which indicates the specific failure.
 /// </returns>
-static ExitCode InitPeripheralsAndHandlers(void)
+static void InitPeripheralsAndHandlers(void)
 {
-    struct sigaction action;
-    memset(&action, 0, sizeof(struct sigaction));
-    action.sa_handler = TerminationHandler;
-    sigaction(SIGTERM, &action, NULL);
+    Termination_SetExitCode(ExitCode_TermHandler_SigTerm);
 
     eventLoop = EventLoop_Create();
     if (eventLoop == NULL) {
         Log_Debug("Could not create event loop.\n");
-        return ExitCode_Init_EventLoop;
+        Exit_DoExit(ExitCode_Init_EventLoop);
     }
 
     // Create a UART_Config object, open the UART and set up UART event handler
@@ -202,11 +186,11 @@ static ExitCode InitPeripheralsAndHandlers(void)
     uartFd = UART_Open(SAMPLE_UART_LOOPBACK, &uartConfig);
     if (uartFd == -1) {
         Log_Debug("ERROR: Could not open UART: %s (%d).\n", strerror(errno), errno);
-        return ExitCode_Init_UartOpen;
+        Exit_DoExit(ExitCode_Init_UartOpen);
     }
     uartEventReg = EventLoop_RegisterIo(eventLoop, uartFd, EventLoop_Input, UartEventHandler, NULL);
     if (uartEventReg == NULL) {
-        return ExitCode_Init_RegisterIo;
+        Exit_DoExit(ExitCode_Init_RegisterIo);
     }
 
     // Open SAMPLE_BUTTON_1 GPIO as input, and set up a timer to poll it
@@ -214,16 +198,14 @@ static ExitCode InitPeripheralsAndHandlers(void)
     gpioButtonFd = GPIO_OpenAsInput(SAMPLE_BUTTON_1);
     if (gpioButtonFd == -1) {
         Log_Debug("ERROR: Could not open button GPIO: %s (%d).\n", strerror(errno), errno);
-        return ExitCode_Init_OpenButton;
+        Exit_DoExit(ExitCode_Init_OpenButton);
     }
     struct timespec buttonPressCheckPeriod1Ms = { .tv_sec = 0, .tv_nsec = 1000 * 1000 };
     buttonPollTimer = CreateEventLoopPeriodicTimer(eventLoop, ButtonTimerEventHandler,
         &buttonPressCheckPeriod1Ms);
     if (buttonPollTimer == NULL) {
-        return ExitCode_Init_ButtonPollTimer;
+        Exit_DoExit(ExitCode_Init_ButtonPollTimer);
     }
-
-    return ExitCode_Success;
 }
 
 /// <summary>
@@ -261,18 +243,18 @@ static void ClosePeripheralsAndHandlers(void)
 int main(int argc, char* argv[])
 {
     Log_Debug("UART application starting.\n");
-    exitCode = InitPeripheralsAndHandlers();
+    InitPeripheralsAndHandlers();
 
     // Use event loop to wait for events and trigger handlers, until an error or SIGTERM happens
-    while (exitCode == ExitCode_Success) {
+    while (Exit_IsExit()) {
         EventLoop_Run_Result result = EventLoop_Run(eventLoop, -1, true);
         // Continue if interrupted by signal, e.g. due to breakpoint being set.
         if (result == EventLoop_Run_Failed && errno != EINTR) {
-            exitCode = ExitCode_Main_EventLoopFail;
+            Exit_DoExit(ExitCode_Main_EventLoopFail);
         }
     }
 
     ClosePeripheralsAndHandlers();
     Log_Debug("Application exiting.\n");
-    return exitCode;
+    return Exit_GetExitCode();
 }
