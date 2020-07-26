@@ -37,7 +37,7 @@
 // https://github.com/Azure/azure-sphere-samples/tree/master/Hardware for more details.
 //
 // This #include imports the sample_hardware abstraction from that hardware definition.
-#include <hw/sample_hardware.h>
+#include <hw/mt3620_rdb.h>
 
 #include "eventloop_timer_utilities.h"
 
@@ -177,15 +177,15 @@ static void InitPeripheralsAndHandlers(void)
     UART_InitConfig(&uartConfig);
     uartConfig.baudRate = 115200;
     uartConfig.flowControl = UART_FlowControl_None;
-    uartFd = UART_Open(SAMPLE_UART_LOOPBACK, &uartConfig);
+    uartFd = UART_Open(MT3620_RDB_HEADER2_ISU0_UART, &uartConfig);
     if (uartFd == -1) Exit_DoExitWithLog(ExitCode_Init_UartOpen, "ERROR: Could not open UART: %s (%d).\n", strerror(errno), errno);
 
     uartEventReg = EventLoop_RegisterIo(eventLoop, uartFd, EventLoop_Input, UartEventHandler, NULL);
     if (uartEventReg == NULL) Exit_DoExit(ExitCode_Init_RegisterIo);
 
     // Open SAMPLE_BUTTON_1 GPIO as input, and set up a timer to poll it
-    Log_Debug("Opening SAMPLE_BUTTON_1 as input.\n");
-    gpioButtonFd = GPIO_OpenAsInput(SAMPLE_BUTTON_1);
+    Log_Debug("Opening MT3620_RDB_BUTTON_A as input.\n");
+    gpioButtonFd = GPIO_OpenAsInput(MT3620_RDB_BUTTON_A);
     if (gpioButtonFd == -1) Exit_DoExitWithLog(ExitCode_Init_OpenButton, "ERROR: Could not open button GPIO: %s (%d).\n", strerror(errno), errno);
     struct timespec buttonPressCheckPeriod1Ms = { .tv_sec = 0, .tv_nsec = 1000 * 1000 };
     buttonPollTimer = CreateEventLoopPeriodicTimer(eventLoop, ButtonTimerEventHandler, &buttonPressCheckPeriod1Ms);
@@ -230,7 +230,7 @@ int main(int argc, char* argv[])
     InitPeripheralsAndHandlers();
 
     // Use event loop to wait for events and trigger handlers, until an error or SIGTERM happens
-    while (Exit_IsExit()) {
+    while (!Exit_IsExit()) {
         EventLoop_Run_Result result = EventLoop_Run(eventLoop, -1, true);
         // Continue if interrupted by signal, e.g. due to breakpoint being set.
         if (result == EventLoop_Run_Failed && errno != EINTR) Exit_DoExit(ExitCode_Main_EventLoopFail);

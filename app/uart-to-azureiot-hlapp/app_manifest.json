@@ -5,6 +5,8 @@
   "EntryPoint": "/bin/app",
   "CmdArgs": [],
   "Capabilities": {
+    "Gpio": [ "$MT3620_RDB_BUTTON_A" ],
+    "Uart": [ "$MT3620_RDB_HEADER2_ISU0_UART" ],
     "AllowedApplicationConnections": []
   },
   "ApplicationType": "Default"
