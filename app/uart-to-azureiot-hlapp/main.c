@@ -21,6 +21,7 @@
 #include <unistd.h>
 #include "Exit.h"
 #include "Termination.h"
+#include "Uart.h"
 
 #include <applibs/uart.h>
 #include <applibs/gpio.h>
@@ -167,16 +168,11 @@ static void InitPeripheralsAndHandlers(void)
 {
     Termination_SetExitCode(ExitCode_TermHandler_SigTerm);
 
+    uartFd = UartOpen(MT3620_RDB_HEADER2_ISU0_UART, 115200, 8, UART_Parity_None, 1, UART_FlowControl_None);
+    if (uartFd == -1) Exit_DoExitWithLog(ExitCode_Init_UartOpen, "ERROR: Could not open UART: %s (%d).\n", strerror(errno), errno);
+
     eventLoop = EventLoop_Create();
     if (eventLoop == NULL) Exit_DoExitWithLog(ExitCode_Init_EventLoop, "Could not create event loop.\n");
-
-    // Create a UART_Config object, open the UART and set up UART event handler
-    UART_Config uartConfig;
-    UART_InitConfig(&uartConfig);
-    uartConfig.baudRate = 115200;
-    uartConfig.flowControl = UART_FlowControl_None;
-    uartFd = UART_Open(MT3620_RDB_HEADER2_ISU0_UART, &uartConfig);
-    if (uartFd == -1) Exit_DoExitWithLog(ExitCode_Init_UartOpen, "ERROR: Could not open UART: %s (%d).\n", strerror(errno), errno);
 
     uartEventReg = EventLoop_RegisterIo(eventLoop, uartFd, EventLoop_Input, UartEventHandler, NULL);
     if (uartEventReg == NULL) Exit_DoExit(ExitCode_Init_RegisterIo);
