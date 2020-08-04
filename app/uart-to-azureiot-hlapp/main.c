@@ -22,6 +22,7 @@
 #include "Exit.h"
 #include "Termination.h"
 #include "Uart.h"
+#include "Gpio.h"
 
 #include <applibs/uart.h>
 #include <applibs/gpio.h>
@@ -69,7 +70,7 @@ EventRegistration* uartEventReg = NULL;
 EventLoopTimer* buttonPollTimer = NULL;
 
 // State variables
-static GPIO_Value_Type buttonState = GPIO_Value_High;
+static bool buttonState = false;
 
 static void SendUartMessage(int uartFd, const char* dataToSend);
 static void ButtonTimerEventHandler(EventLoopTimer* timer);
@@ -115,17 +116,11 @@ static void ButtonTimerEventHandler(EventLoopTimer* timer)
     }
 
     // Check for a button press
-    GPIO_Value_Type newButtonState;
-    int result = GPIO_GetValue(gpioButtonFd, &newButtonState);
-    if (result != 0) {
-        Exit_DoExitWithLog(ExitCode_ButtonTimer_GetValue, "ERROR: Could not read button GPIO: %s (%d).\n", strerror(errno), errno);
-        return;
-    }
-
+    bool newButtonState = GpioReadInv(gpioButtonFd);
     // If the button has just been pressed, send data over the UART
     // The button has GPIO_Value_Low when pressed and GPIO_Value_High when released
     if (newButtonState != buttonState) {
-        if (newButtonState == GPIO_Value_Low) {
+        if (newButtonState) {
             SendUartMessage(uartFd, "Hello world!\n");
         }
         buttonState = newButtonState;
