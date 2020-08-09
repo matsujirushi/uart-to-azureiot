@@ -163,22 +163,36 @@ static void InitPeripheralsAndHandlers(void)
 {
     Termination_SetExitCode(ExitCode_TermHandler_SigTerm);
 
-    uartFd = UartOpen(MT3620_RDB_HEADER2_ISU0_UART, 115200, 8, UART_Parity_None, 1, UART_FlowControl_None);
-    if (uartFd == -1) Exit_DoExitWithLog(ExitCode_Init_UartOpen, "ERROR: Could not open UART: %s (%d).\n", strerror(errno), errno);
-
     eventLoop = EventLoop_Create();
-    if (eventLoop == NULL) Exit_DoExitWithLog(ExitCode_Init_EventLoop, "Could not create event loop.\n");
+    if (eventLoop == NULL) {
+        Exit_DoExitWithLog(ExitCode_Init_EventLoop, "Could not create event loop.\n");
+        return;
+    }
 
+    uartFd = UartOpen(MT3620_RDB_HEADER2_ISU0_UART, 115200, 8, UART_Parity_None, 1, UART_FlowControl_None);
+    if (uartFd == -1) {
+        Exit_DoExitWithLog(ExitCode_Init_UartOpen, "ERROR: Could not open UART: %s (%d).\n", strerror(errno), errno);
+        return;
+    }
     uartEventReg = EventLoop_RegisterIo(eventLoop, uartFd, EventLoop_Input, UartEventHandler, NULL);
-    if (uartEventReg == NULL) Exit_DoExit(ExitCode_Init_RegisterIo);
+    if (uartEventReg == NULL) {
+        Exit_DoExit(ExitCode_Init_RegisterIo);
+        return;
+    }
 
     // Open SAMPLE_BUTTON_1 GPIO as input, and set up a timer to poll it
     Log_Debug("Opening MT3620_RDB_BUTTON_A as input.\n");
     gpioButtonFd = GPIO_OpenAsInput(MT3620_RDB_BUTTON_A);
-    if (gpioButtonFd == -1) Exit_DoExitWithLog(ExitCode_Init_OpenButton, "ERROR: Could not open button GPIO: %s (%d).\n", strerror(errno), errno);
+    if (gpioButtonFd == -1) {
+        Exit_DoExitWithLog(ExitCode_Init_OpenButton, "ERROR: Could not open button GPIO: %s (%d).\n", strerror(errno), errno);
+        return;
+    }
     struct timespec buttonPressCheckPeriod1Ms = { .tv_sec = 0, .tv_nsec = 1000 * 1000 };
     buttonPollTimer = CreateEventLoopPeriodicTimer(eventLoop, ButtonTimerEventHandler, &buttonPressCheckPeriod1Ms);
-    if (buttonPollTimer == NULL) Exit_DoExit(ExitCode_Init_ButtonPollTimer);
+    if (buttonPollTimer == NULL) {
+        Exit_DoExit(ExitCode_Init_ButtonPollTimer);
+        return;
+    }
 }
 
 /// <summary>
