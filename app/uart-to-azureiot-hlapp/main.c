@@ -28,14 +28,6 @@
 #include <applibs/log.h>
 #include <applibs/eventloop.h>
 
-// By default, this sample targets hardware that follows the MT3620 Reference
-// Development Board (RDB) specification, such as the MT3620 Dev Kit from
-// Seeed Studio.
-//
-// To target different hardware, you'll need to update CMakeLists.txt. See
-// https://github.com/Azure/azure-sphere-samples/tree/master/Hardware for more details.
-//
-// This #include imports the sample_hardware abstraction from that hardware definition.
 #include "../../hardware-definitions/inc/hw/uart-to-azureiot.h"
 
 #include "eventloop_timer_utilities.h"
@@ -152,6 +144,21 @@ static void UartEventHandler(EventLoop* el, int fd, EventLoop_IoEvents events, v
 }
 
 /// <summary>
+///     Closes a file descriptor and prints an error on failure.
+/// </summary>
+/// <param name="fd">File descriptor to close</param>
+/// <param name="fdName">File descriptor name to use in error message</param>
+static void CloseFdAndPrintError(int fd, const char* fdName)
+{
+    if (fd >= 0) {
+        int result = close(fd);
+        if (result != 0) {
+            Log_Debug("ERROR: Could not close fd %s: %s (%d).\n", fdName, strerror(errno), errno);
+        }
+    }
+}
+
+/// <summary>
 ///     Set up SIGTERM termination handler, initialize peripherals, and set up event handlers.
 /// </summary>
 /// <returns>
@@ -168,12 +175,11 @@ static void InitPeripheralsAndHandlers(void)
         return;
     }
 
-    // Create a UART_Config object, open the UART and set up UART event handler
     UART_Config uartConfig;
     UART_InitConfig(&uartConfig);
     uartConfig.baudRate = 115200;
     uartConfig.flowControl = UART_FlowControl_None;
-    uartFd = UART_Open(MT3620_RDB_HEADER2_ISU0_UART, &uartConfig);
+    uartFd = UART_Open(ARDUINO_UART, &uartConfig);
     if (uartFd == -1) {
         Exit_DoExitWithLog(ExitCode_Init_UartOpen, "ERROR: Could not open UART: %s (%d).\n", strerror(errno), errno);
         return;
@@ -184,9 +190,7 @@ static void InitPeripheralsAndHandlers(void)
         return;
     }
 
-    // Open SAMPLE_BUTTON_1 GPIO as input, and set up a timer to poll it
-    Log_Debug("Opening MT3620_RDB_BUTTON_A as input.\n");
-    gpioButtonFd = GPIO_OpenAsInput(MT3620_RDB_BUTTON_A);
+    gpioButtonFd = GPIO_OpenAsInput(SEND_BUTTON);
     if (gpioButtonFd == -1) {
         Exit_DoExitWithLog(ExitCode_Init_OpenButton, "ERROR: Could not open button GPIO: %s (%d).\n", strerror(errno), errno);
         return;
@@ -200,21 +204,6 @@ static void InitPeripheralsAndHandlers(void)
 }
 
 /// <summary>
-///     Closes a file descriptor and prints an error on failure.
-/// </summary>
-/// <param name="fd">File descriptor to close</param>
-/// <param name="fdName">File descriptor name to use in error message</param>
-static void CloseFdAndPrintError(int fd, const char* fdName)
-{
-    if (fd >= 0) {
-        int result = close(fd);
-        if (result != 0) {
-            Log_Debug("ERROR: Could not close fd %s: %s (%d).\n", fdName, strerror(errno), errno);
-        }
-    }
-}
-
-/// <summary>
 ///     Close peripherals and handlers.
 /// </summary>
 static void ClosePeripheralsAndHandlers(void)
@@ -224,7 +213,7 @@ static void ClosePeripheralsAndHandlers(void)
     EventLoop_Close(eventLoop);
 
     Log_Debug("Closing file descriptors.\n");
-    CloseFdAndPrintError(gpioButtonFd, "GpioButton");
+    CloseFdAndPrintError(gpioButtonFd, "Button");
     CloseFdAndPrintError(uartFd, "Uart");
 }
 
