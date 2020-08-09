@@ -1,0 +1,15 @@
+﻿{
+    "Metadata": {
+        "Type": "Azure Sphere Hardware Definition",
+        "Version": 1
+    },
+    "Description":
+    {
+        "Name": "uart-to-azureiot"
+    },
+    "Imports" : [ {"Path": "mt3620_rdb.json"} ],
+    "Peripherals": [
+        {"Name": "SEND_BUTTON", "Type": "Gpio", "Mapping": "MT3620_RDB_BUTTON_A", "Comment": "SEND_BUTTON"},
+        {"Name": "ARDUINO_UART", "Type": "Uart", "Mapping": "MT3620_RDB_HEADER2_ISU0_UART", "Comment": "ARDUINO_UART"}
+    ]
+}

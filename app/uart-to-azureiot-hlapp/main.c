@@ -37,7 +37,7 @@
 // https://github.com/Azure/azure-sphere-samples/tree/master/Hardware for more details.
 //
 // This #include imports the sample_hardware abstraction from that hardware definition.
-#include <hw/mt3620_rdb.h>
+#include "../../hardware-definitions/inc/hw/uart-to-azureiot.h"
 
 #include "eventloop_timer_utilities.h"
 

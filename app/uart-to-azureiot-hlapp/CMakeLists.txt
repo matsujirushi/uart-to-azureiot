@@ -17,5 +17,5 @@ add_subdirectory(../../lib/eventloop_timer_utilities lib/eventloop_timer_utiliti
 add_executable(${PROJECT_NAME} main.c Exit.c Termination.c Uart.c Gpio.c)
 target_link_libraries(${PROJECT_NAME} applibs pthread gcc_s c eventloop_timer_utilities)
 
-azsphere_target_hardware_definition(${PROJECT_NAME} TARGET_DIRECTORY "../../azure-sphere-samples-hardware/mt3620_rdb" TARGET_DEFINITION "sample_hardware.json")
+azsphere_target_hardware_definition(${PROJECT_NAME} TARGET_DIRECTORY "../../hardware-definitions" TARGET_DEFINITION "uart-to-azureiot.json")
 azsphere_target_add_image_package(${PROJECT_NAME})
