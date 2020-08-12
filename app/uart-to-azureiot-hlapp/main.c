@@ -1,16 +1,6 @@
-﻿/* Copyright (c) Microsoft Corporation. All rights reserved.
-   Licensed under the MIT License. */
-
-   // This sample C application for Azure Sphere demonstrates how to use a UART (serial port).
-   // The sample opens a UART with a baud rate of 115200. Pressing a button causes characters
-   // to be sent from the device over the UART; data received by the device from the UART is echoed to
-   // the Visual Studio Output Window.
-   //
-   // It uses the API for the following Azure Sphere application libraries:
-   // - UART (serial port)
-   // - GPIO (digital input for button)
-   // - log (messages shown in Visual Studio's Device Output window during debugging)
-   // - eventloop (system invokes handlers for timer events)
+﻿// Copyright (c) 2020 matsujirushi
+// Released under the MIT license
+// https://github.com/matsujirushi/uart-to-azureiot/blob/master/LICENSE.txt
 
 #include <errno.h>
 #include <signal.h>

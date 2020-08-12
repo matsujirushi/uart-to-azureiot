@@ -1,4 +1,8 @@
-﻿cmake_minimum_required(VERSION 3.10)
+﻿# Copyright (c) 2020 matsujirushi
+# Released under the MIT license
+# https://github.com/matsujirushi/uart-to-azureiot/blob/master/LICENSE.txt
+
+cmake_minimum_required(VERSION 3.10)
 
 project(uart-to-azureiot-hlapp C)
 

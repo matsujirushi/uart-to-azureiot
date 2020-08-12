@@ -1,3 +1,7 @@
+// Copyright (c) 2020 matsujirushi
+// Released under the MIT license
+// https://github.com/matsujirushi/uart-to-azureiot/blob/master/LICENSE.txt
+
 #include "Gpio.h"
 
 bool GpioRead(int gpioFd)
