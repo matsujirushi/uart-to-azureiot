@@ -22,61 +22,48 @@
 
 #include "eventloop_timer_utilities.h"
 
-/// <summary>
-/// Exit codes for this application. These are used for the
-/// application exit code. They must all be between zero and 255,
-/// where zero is reserved for successful termination.
-/// </summary>
+const size_t UART_RECEIVE_BUFFER_SIZE = 256;
+
+// Exit Code for Application
 typedef enum {
-    ExitCode_Success = 0,
-    ExitCode_TermHandler_SigTerm = 1,
-    ExitCode_SendMessage_Write = 2,
-    ExitCode_ButtonTimer_Consume = 3,
-    ExitCode_ButtonTimer_GetValue = 4,
-    ExitCode_UartEvent_Read = 5,
-    ExitCode_Init_EventLoop = 6,
-    ExitCode_Init_UartOpen = 7,
-    ExitCode_Init_RegisterIo = 8,
-    ExitCode_Init_OpenButton = 9,
-    ExitCode_Init_ButtonPollTimer = 10,
-    ExitCode_Main_EventLoopFail = 11
+    ExitCode_Success                = 0,
+    ExitCode_SigTerm                = 1,
+
+    ExitCode_Init_OpenButton        = 2,
+    ExitCode_Init_UartOpen          = 3,
+    ExitCode_Init_EventLoop         = 4,
+    ExitCode_Init_ButtonPollTimer   = 5,
+    ExitCode_Init_RegisterIo        = 6,
+
+    ExitCode_Main_EventLoopFail     = 7,
+
+    ExitCode_ButtonTimer_Consume    = 8,
+    ExitCode_SendMessage_Write      = 9,
+    ExitCode_UartEvent_Read         = 10,
 } ExitCode;
 
-// File descriptors - initialized to invalid value
-static int uartFd = -1;
-static int gpioButtonFd = -1;
+static int UartFd = -1;             // fd
 
-EventLoop* eventLoop = NULL;
-EventRegistration* uartEventReg = NULL;
-EventLoopTimer* buttonPollTimer = NULL;
+static int ButtonFd = -1;           // fd
+static bool ButtonValue = false;
 
-// State variables
-static bool buttonState = false;
+static EventLoop* EvLoop = NULL;
+static EventRegistration* EvRegUart = NULL;
+static EventLoopTimer* EvTimerButton = NULL;
 
-static void SendUartMessage(int uartFd, const char* dataToSend);
-static void ButtonTimerEventHandler(EventLoopTimer* timer);
-static void UartEventHandler(EventLoop* el, int fd, EventLoop_IoEvents events, void* context);
-static void CloseFdAndPrintError(int fd, const char* fdName);
-
-/// <summary>
-///     Helper function to send a fixed message via the given UART.
-/// </summary>
-/// <param name="uartFd">The open file descriptor of the UART to write to</param>
-/// <param name="dataToSend">The data to send over the UART</param>
 static void SendUartMessage(int uartFd, const char* dataToSend)
 {
     size_t totalBytesSent = 0;
-    size_t totalBytesToSend = strlen(dataToSend);
+    const size_t totalBytesToSend = strlen(dataToSend);
     int sendIterations = 0;
     while (totalBytesSent < totalBytesToSend) {
         sendIterations++;
 
-        // Send as much of the remaining data as possible
         size_t bytesLeftToSend = totalBytesToSend - totalBytesSent;
         const char* remainingMessageToSend = dataToSend + totalBytesSent;
         ssize_t bytesSent = write(uartFd, remainingMessageToSend, bytesLeftToSend);
         if (bytesSent == -1) {
-            Exit_DoExitWithLog(ExitCode_SendMessage_Write, "ERROR: Could not write to UART: %s (%d).\n", strerror(errno), errno);
+            Exit_DoExitWithLog(ExitCode_SendMessage_Write, "ERROR: write() - %s (%d)\n", strerror(errno), errno);
             return;
         }
 
@@ -86,143 +73,97 @@ static void SendUartMessage(int uartFd, const char* dataToSend)
     Log_Debug("Sent %zu bytes over UART in %d calls.\n", totalBytesSent, sendIterations);
 }
 
-/// <summary>
-///     Handle button timer event: if the button is pressed, send data over the UART.
-/// </summary>
 static void ButtonTimerEventHandler(EventLoopTimer* timer)
 {
-    if (ConsumeEventLoopTimerEvent(timer) != 0) {
+    if (ConsumeEventLoopTimerEvent(timer) == -1) {
         Exit_DoExit(ExitCode_ButtonTimer_Consume);
         return;
     }
 
-    // Check for a button press
-    bool newButtonState = GpioReadInv(gpioButtonFd);
-    // If the button has just been pressed, send data over the UART
-    // The button has GPIO_Value_Low when pressed and GPIO_Value_High when released
-    if (newButtonState != buttonState) {
-        if (newButtonState) {
-            SendUartMessage(uartFd, "Hello world!\n");
-        }
-        buttonState = newButtonState;
-    }
+    const bool newButtonValue = GpioReadInv(ButtonFd);
+    if (!ButtonValue && newButtonValue) SendUartMessage(UartFd, "Hello world!\n");
+    ButtonValue = newButtonValue;
 }
 
-/// <summary>
-///     Handle UART event: if there is incoming data, print it.
-///     This satisfies the EventLoopIoCallback signature.
-/// </summary>
 static void UartEventHandler(EventLoop* el, int fd, EventLoop_IoEvents events, void* context)
 {
-    const size_t receiveBufferSize = 256;
-    uint8_t receiveBuffer[receiveBufferSize + 1]; // allow extra byte for string termination
+    uint8_t receiveBuffer[UART_RECEIVE_BUFFER_SIZE + 1];
     ssize_t bytesRead;
 
-    // Read incoming UART data. It is expected behavior that messages may be received in multiple
-    // partial chunks.
-    bytesRead = read(uartFd, receiveBuffer, receiveBufferSize);
+    bytesRead = read(UartFd, receiveBuffer, UART_RECEIVE_BUFFER_SIZE);
     if (bytesRead == -1) {
-        Exit_DoExitWithLog(ExitCode_UartEvent_Read, "ERROR: Could not read UART: %s (%d).\n", strerror(errno), errno);
+        Exit_DoExitWithLog(ExitCode_UartEvent_Read, "ERROR: read() - %s (%d)\n", strerror(errno), errno);
         return;
     }
 
     if (bytesRead > 0) {
-        // Null terminate the buffer to make it a valid string, and print it
         receiveBuffer[bytesRead] = 0;
         Log_Debug("UART received %d bytes: '%s'.\n", bytesRead, (char*)receiveBuffer);
     }
 }
 
-/// <summary>
-///     Closes a file descriptor and prints an error on failure.
-/// </summary>
-/// <param name="fd">File descriptor to close</param>
-/// <param name="fdName">File descriptor name to use in error message</param>
-static void CloseFdAndPrintError(int fd, const char* fdName)
-{
-    if (fd >= 0) {
-        int result = close(fd);
-        if (result != 0) {
-            Log_Debug("ERROR: Could not close fd %s: %s (%d).\n", fdName, strerror(errno), errno);
-        }
-    }
-}
-
-/// <summary>
-///     Set up SIGTERM termination handler, initialize peripherals, and set up event handlers.
-/// </summary>
-/// <returns>
-///     ExitCode_Success if all resources were allocated successfully; otherwise another
-///     ExitCode value which indicates the specific failure.
-/// </returns>
 static void InitPeripheralsAndHandlers(void)
 {
-    Termination_SetExitCode(ExitCode_TermHandler_SigTerm);
+    Termination_SetExitCode(ExitCode_SigTerm);
 
-    eventLoop = EventLoop_Create();
-    if (eventLoop == NULL) {
-        Exit_DoExitWithLog(ExitCode_Init_EventLoop, "Could not create event loop.\n");
+    ButtonFd = GPIO_OpenAsInput(SEND_BUTTON);
+    if (ButtonFd == -1) {
+        Exit_DoExitWithLog(ExitCode_Init_OpenButton, "ERROR: GPIO_OpenAsInput() - %s (%d)\n", strerror(errno), errno);
         return;
     }
-
     UART_Config uartConfig;
     UART_InitConfig(&uartConfig);
     uartConfig.baudRate = 115200;
     uartConfig.flowControl = UART_FlowControl_None;
-    uartFd = UART_Open(ARDUINO_UART, &uartConfig);
-    if (uartFd == -1) {
-        Exit_DoExitWithLog(ExitCode_Init_UartOpen, "ERROR: Could not open UART: %s (%d).\n", strerror(errno), errno);
-        return;
-    }
-    uartEventReg = EventLoop_RegisterIo(eventLoop, uartFd, EventLoop_Input, UartEventHandler, NULL);
-    if (uartEventReg == NULL) {
-        Exit_DoExit(ExitCode_Init_RegisterIo);
+    UartFd = UART_Open(ARDUINO_UART, &uartConfig);
+    if (UartFd == -1) {
+        Exit_DoExitWithLog(ExitCode_Init_UartOpen, "ERROR: UART_Open() - %s (%d)\n", strerror(errno), errno);
         return;
     }
 
-    gpioButtonFd = GPIO_OpenAsInput(SEND_BUTTON);
-    if (gpioButtonFd == -1) {
-        Exit_DoExitWithLog(ExitCode_Init_OpenButton, "ERROR: Could not open button GPIO: %s (%d).\n", strerror(errno), errno);
+    EvLoop = EventLoop_Create();
+    if (EvLoop == NULL) {
+        Exit_DoExitWithLog(ExitCode_Init_EventLoop, "ERROR: EventLoop_Create() - %s (%d)\n", strerror(errno), errno);
         return;
     }
-    struct timespec buttonPressCheckPeriod1Ms = { .tv_sec = 0, .tv_nsec = 1000 * 1000 };
-    buttonPollTimer = CreateEventLoopPeriodicTimer(eventLoop, ButtonTimerEventHandler, &buttonPressCheckPeriod1Ms);
-    if (buttonPollTimer == NULL) {
-        Exit_DoExit(ExitCode_Init_ButtonPollTimer);
+    const struct timespec buttonPressCheckPeriod1Ms = { .tv_sec = 0, .tv_nsec = 1000 * 1000 };
+    EvTimerButton = CreateEventLoopPeriodicTimer(EvLoop, ButtonTimerEventHandler, &buttonPressCheckPeriod1Ms);
+    if (EvTimerButton == NULL) {
+        Exit_DoExitWithLog(ExitCode_Init_ButtonPollTimer, "ERROR: CreateEventLoopPeriodicTimer() - %s (%d)\n", strerror(errno), errno);
+        return;
+    }
+    EvRegUart = EventLoop_RegisterIo(EvLoop, UartFd, EventLoop_Input, UartEventHandler, NULL);
+    if (EvRegUart == NULL) {
+        Exit_DoExitWithLog(ExitCode_Init_RegisterIo, "ERROR: EventLoop_RegisterIo() - %s (%d)\n", strerror(errno), errno);
         return;
     }
 }
 
-/// <summary>
-///     Close peripherals and handlers.
-/// </summary>
 static void ClosePeripheralsAndHandlers(void)
 {
-    DisposeEventLoopTimer(buttonPollTimer);
-    EventLoop_UnregisterIo(eventLoop, uartEventReg);
-    EventLoop_Close(eventLoop);
+    EventLoop_UnregisterIo(EvLoop, EvRegUart);
+    DisposeEventLoopTimer(EvTimerButton);
+    EventLoop_Close(EvLoop);
 
-    Log_Debug("Closing file descriptors.\n");
-    CloseFdAndPrintError(gpioButtonFd, "Button");
-    CloseFdAndPrintError(uartFd, "Uart");
+    if (UartFd >= 0) close(UartFd);
+    if (ButtonFd >= 0) close(UartFd);
 }
 
-/// <summary>
-///     Main entry point for this application.
-/// </summary>
 int main(int argc, char* argv[])
 {
-    Log_Debug("UART application starting.\n");
+    Log_Debug("Application starting.\n");
     InitPeripheralsAndHandlers();
 
-    // Use event loop to wait for events and trigger handlers, until an error or SIGTERM happens
     while (!Exit_IsExit()) {
-        EventLoop_Run_Result result = EventLoop_Run(eventLoop, -1, true);
-        // Continue if interrupted by signal, e.g. due to breakpoint being set.
+        const EventLoop_Run_Result result = EventLoop_Run(EvLoop, -1, true);
         if (result == EventLoop_Run_Failed && errno != EINTR) Exit_DoExit(ExitCode_Main_EventLoopFail);
     }
 
-    ClosePeripheralsAndHandlers();
     Log_Debug("Application exiting.\n");
-    return Exit_GetExitCode();
+    ClosePeripheralsAndHandlers();
+
+    const int exitCode = Exit_GetExitCode();
+    Log_Debug("Exit Code is %d.\n", exitCode);
+
+    return exitCode;
 }
