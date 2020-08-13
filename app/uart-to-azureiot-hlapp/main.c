@@ -91,6 +91,13 @@ static void ButtonTimerEventHandler(EventLoopTimer* timer)
 ////////////////////////////////////////////////////////////////////////////////
 // Uart Receive
 
+static void MessageReceivedHandler(BytesSpan_t messageSpan)
+{
+    Log_Debug("[");
+    for (uint8_t* p = messageSpan.Begin; p != messageSpan.End; ++p) Log_Debug("%c", *p);
+    Log_Debug("]\n");
+}
+
 static void UartReceiveHandler(EventLoop* el, int fd, EventLoop_IoEvents events, void* context)
 {
     BytesSpan_t buffer = MessageParserGetReceiveBuffer();
@@ -103,7 +110,7 @@ static void UartReceiveHandler(EventLoop* el, int fd, EventLoop_IoEvents events,
     }
 
     if (readSize > 0) {
-        Log_Debug("readSize = %d\n", readSize);
+        Log_Debug("Received %d bytes.\n", readSize);
         MessageParserAddReceivedSize((size_t)readSize);
         MessageParserDoWork();
     }
@@ -130,6 +137,8 @@ static void InitPeripheralsAndHandlers(void)
         Exit_DoExitWithLog(ExitCode_Init_UartOpen, "ERROR: UART_Open() - %s (%d)\n", strerror(errno), errno);
         return;
     }
+
+    MessageParserSetMessageReceivedHandler(MessageReceivedHandler);
 
     EvLoop = EventLoop_Create();
     if (EvLoop == NULL) {

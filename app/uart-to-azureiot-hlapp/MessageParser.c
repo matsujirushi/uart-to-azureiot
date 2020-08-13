@@ -5,7 +5,6 @@
 #include "MessageParser.h"
 #include <assert.h>
 #include <string.h>
-#include <applibs/log.h>
 
 static uint8_t Buffer[256];
 #define BUFFER_BEGIN    (Buffer)
@@ -13,6 +12,13 @@ static uint8_t Buffer[256];
 
 static uint8_t* ScannedSpanEnd = BUFFER_BEGIN;
 static uint8_t* BeforeScanEnd = BUFFER_BEGIN;
+
+static void (*MessageReceivedHandler)(BytesSpan_t messageSpan) = NULL;
+
+void MessageParserSetMessageReceivedHandler(void(*handler)(BytesSpan_t messageSpan))
+{
+    MessageReceivedHandler = handler;
+}
 
 BytesSpan_t MessageParserGetReceiveBuffer(void)
 {
@@ -33,10 +39,7 @@ void MessageParserDoWork(void)
         scanSpan = BytesSpanInit(ScannedSpanEnd, BeforeScanEnd);
         for (scanPtr = scanSpan.Begin; scanPtr != scanSpan.End; ++scanPtr) {
             if (*scanPtr == 0x0a) {
-                BytesSpan_t messageSpan = BytesSpanInit(BUFFER_BEGIN, scanPtr);
-                Log_Debug("[");
-                for (uint8_t* p = messageSpan.Begin; p != messageSpan.End; ++p) Log_Debug("%c", *p);
-                Log_Debug("]\n");
+                if (MessageReceivedHandler != NULL) MessageReceivedHandler(BytesSpanInit(BUFFER_BEGIN, scanPtr));
 
                 const size_t beforeScanSize = (size_t)(scanSpan.End - (scanPtr + 1));
                 memmove(BUFFER_BEGIN, scanPtr + 1, beforeScanSize);
