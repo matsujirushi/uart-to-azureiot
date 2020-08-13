@@ -13,6 +13,7 @@
 #include "Exit.h"
 #include "Termination.h"
 #include "Gpio.h"
+#include "MessageParser.h"
 
 #include <applibs/uart.h>
 #include <applibs/gpio.h>
@@ -22,8 +23,6 @@
 #include "../../hardware-definitions/inc/hw/uart-to-azureiot.h"
 
 #include "eventloop_timer_utilities.h"
-
-const size_t UART_RECEIVE_BUFFER_SIZE = 256;
 
 // Exit Code for Application
 typedef enum {
@@ -90,58 +89,14 @@ static void ButtonTimerEventHandler(EventLoopTimer* timer)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Message Parser
-
-static uint8_t MessageParserInputBuffer[256];
-static size_t MessageParserInputBufferVaildSize = 0;
-
-static uint8_t* MessageParserGetInputBufferBegin(void)
-{
-    return MessageParserInputBuffer + MessageParserInputBufferVaildSize;
-}
-
-static uint8_t* MessageParserGetInputBufferEnd(void)
-{
-    return MessageParserInputBuffer + sizeof(MessageParserInputBuffer) / sizeof(MessageParserInputBuffer[0]);
-}
-
-static void MessageParserAddValidInputSize(size_t size)
-{
-    MessageParserInputBufferVaildSize += size;
-    assert(MessageParserInputBufferVaildSize <= sizeof(MessageParserInputBuffer) / sizeof(MessageParserInputBuffer[0]));
-}
-
-static void MessageParserDoWork(void)
-{
-    uint8_t* begin;
-    uint8_t* end;
-    do {
-        begin = MessageParserInputBuffer;
-        end = MessageParserInputBuffer + MessageParserInputBufferVaildSize;
-
-        for (; begin != end; ++begin) {
-            if (*begin == 0x0a) {
-                Log_Debug("[");
-                for (uint8_t* p = MessageParserInputBuffer; p != begin; ++p) Log_Debug("%c", *p);
-                Log_Debug("]\n");
-
-                MessageParserInputBufferVaildSize = (size_t)(end - (begin + 1));
-                memmove(MessageParserInputBuffer, begin + 1, MessageParserInputBufferVaildSize);
-                break;
-            }
-        }
-    } while (begin != end);
-}
-
-////////////////////////////////////////////////////////////////////////////////
 // Uart Receive
 
 static void UartReceiveHandler(EventLoop* el, int fd, EventLoop_IoEvents events, void* context)
 {
-    uint8_t* begin = MessageParserGetInputBufferBegin();
-    uint8_t* end = MessageParserGetInputBufferEnd();
-    assert(begin != end);
-    const ssize_t readSize = read(UartFd, begin, (size_t)(end - begin));
+    BytesSpan_t buffer = MessageParserGetReceiveBuffer();
+
+    assert(buffer.Begin != buffer.End);
+    const ssize_t readSize = read(UartFd, buffer.Begin, BytesSpanSize(&buffer));
     if (readSize == -1) {
         Exit_DoExitWithLog(ExitCode_UartEvent_Read, "ERROR: read() - %s (%d)\n", strerror(errno), errno);
         return;
@@ -149,7 +104,7 @@ static void UartReceiveHandler(EventLoop* el, int fd, EventLoop_IoEvents events,
 
     if (readSize > 0) {
         Log_Debug("readSize = %d\n", readSize);
-        MessageParserAddValidInputSize((size_t)readSize);
+        MessageParserAddReceivedSize((size_t)readSize);
         MessageParserDoWork();
     }
 }
