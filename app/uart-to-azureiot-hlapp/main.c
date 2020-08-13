@@ -84,8 +84,80 @@ static void ButtonTimerEventHandler(EventLoopTimer* timer)
     }
 
     const bool newButtonValue = GpioReadInv(ButtonFd);
-    if (!ButtonValue && newButtonValue) UartSend(UartFd, "label1:11,label2:22\n");
+    if (!ButtonValue && newButtonValue) UartSend(UartFd, "label1:11,label2:22,3:,:4,5,:\n");
     ButtonValue = newButtonValue;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Serial Plotter Protocol
+
+typedef struct {
+    BytesSpan_t Label;
+    BytesSpan_t Value;
+} SpPart_t;
+
+static bool SpIsPartSeparator(uint8_t data)
+{
+    return data == ' ' || data == '\t' || data == ',' ? true : false;
+}
+
+static bool SpIsLabelSeparator(uint8_t data)
+{
+    return data == ':' ? true : false;
+}
+
+static int SpNumberOfParts(BytesSpan_t messageSpan)
+{
+    if (messageSpan.Begin == messageSpan.End) return 0;
+
+    int number = 0;
+    for (uint8_t* p = messageSpan.Begin; p != messageSpan.End; ++p) {
+        if (SpIsPartSeparator(*p)) ++number;
+    }
+
+    return number + 1;
+}
+
+static BytesSpan_t SpGetPartSpan(BytesSpan_t messageSpan, BytesSpan_t* partSpan)
+{
+    for (uint8_t* p = messageSpan.Begin; p != messageSpan.End; ++p) {
+        if (SpIsPartSeparator(*p)) {
+            partSpan->Begin = messageSpan.Begin;
+            partSpan->End = p;
+            messageSpan.Begin = p + 1;
+            return messageSpan;
+        }
+    }
+
+    *partSpan = messageSpan;
+    messageSpan.Begin = messageSpan.End;
+    return messageSpan;
+}
+
+static SpPart_t SpPartInit(BytesSpan_t partSpan)
+{
+    uint8_t* labelSeparator = NULL;
+    for (uint8_t* p = partSpan.Begin; p != partSpan.End; ++p) {
+        if (SpIsLabelSeparator(*p)) {
+            labelSeparator = p;
+            break;
+        }
+    }
+
+    SpPart_t part;
+    if (labelSeparator != NULL) {
+        part.Label.Begin = partSpan.Begin;
+        part.Label.End = labelSeparator;
+        part.Value.Begin = labelSeparator + 1;
+        part.Value.End = partSpan.End;
+    }
+    else {
+        part.Label.Begin = NULL;
+        part.Label.End = NULL;
+        part.Value = partSpan;
+    }
+
+    return part;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -93,9 +165,29 @@ static void ButtonTimerEventHandler(EventLoopTimer* timer)
 
 static void MessageReceivedHandler(BytesSpan_t messageSpan)
 {
-    Log_Debug("[");
-    for (uint8_t* p = messageSpan.Begin; p != messageSpan.End; ++p) Log_Debug("%c", *p);
-    Log_Debug("]\n");
+    const int partNumber = SpNumberOfParts(messageSpan);
+    Log_Debug("===\n");
+    for (int i = 0; i < partNumber; ++i) {
+        BytesSpan_t partSpan;
+        messageSpan = SpGetPartSpan(messageSpan, &partSpan);
+        SpPart_t part = SpPartInit(partSpan);
+
+        Log_Debug("%d:[", i);
+        for (uint8_t* p = partSpan.Begin; p != partSpan.End; ++p) Log_Debug("%c", *p);
+        Log_Debug("]\n");
+
+        if (part.Label.Begin != part.Label.End) {
+            Log_Debug("  label:[");
+            for (uint8_t* p = part.Label.Begin; p != part.Label.End; ++p) Log_Debug("%c", *p);
+            Log_Debug("]\n");
+        }
+        if (part.Value.Begin != part.Value.End) {
+            Log_Debug("  value:[");
+            for (uint8_t* p = part.Value.Begin; p != part.Value.End; ++p) Log_Debug("%c", *p);
+            Log_Debug("]\n");
+        }
+    }
+    Log_Debug("===\n");
 }
 
 static void UartReceiveHandler(EventLoop* el, int fd, EventLoop_IoEvents events, void* context)
