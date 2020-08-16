@@ -171,31 +171,52 @@ static SpPart_t SpPartInit(BytesSpan_t partSpan)
 
 static void MessageReceivedHandler(BytesSpan_t messageSpan)
 {
-    const int partNumber = SpNumberOfParts(messageSpan);
-    Log_Debug("===\n");
-    for (int i = 0; i < partNumber; ++i) {
+    Log_Debug("Received message: \"");
+    for (uint8_t* p = messageSpan.Begin; p != messageSpan.End; ++p) Log_Debug("%c", *p);
+    Log_Debug("\"\n");
+
+
+    const int partNumberInMessage = SpNumberOfParts(messageSpan);
+    SpPart_t parts[partNumberInMessage];
+    int partNumber = 0;
+    for (int i = 0; i < partNumberInMessage; ++i) {
         BytesSpan_t partSpan;
         messageSpan = SpGetPartSpan(messageSpan, &partSpan);
         SpPart_t part = SpPartInit(partSpan);
-
-        Log_Debug("%d:[", i);
-        for (uint8_t* p = partSpan.Begin; p != partSpan.End; ++p) Log_Debug("%c", *p);
-        Log_Debug("]\n");
-
-        if (part.Label.Begin != part.Label.End) {
-            Log_Debug("  label:[");
-            for (uint8_t* p = part.Label.Begin; p != part.Label.End; ++p) Log_Debug("%c", *p);
-            Log_Debug("]\n");
-        }
-        if (part.Value.Begin != part.Value.End) {
-            Log_Debug("  value:[");
-            for (uint8_t* p = part.Value.Begin; p != part.Value.End; ++p) Log_Debug("%c", *p);
-            Log_Debug("]\n");
+        if (BytesSpanSize(&part.Label) >= 1 && BytesSpanSize(&part.Value) >= 1) {
+            parts[partNumber++] = part;
         }
     }
-    Log_Debug("===\n");
 
-    bool ret = AzureDeviceClientSendTelemetryAsync(DeviceClient, "{\"testVariable\":12.34}");
+    if (partNumber <= 0) return;
+
+    size_t messageLength = 2;   // {}
+    for (int i = 0; i < partNumber; ++i) {
+        messageLength += 1 + BytesSpanSize(&parts[i].Label) + 2 + BytesSpanSize(&parts[i].Value) + 1;   // "<Label>":<Value>,
+    }
+    messageLength -= 1; // ,
+
+    char message[messageLength + 1];
+    char* messagePtr = message;
+    *messagePtr++ = '{';
+    for (int i = 0; i < partNumber; ++i) {
+        *messagePtr++ = '\"';
+        memcpy(messagePtr, parts[i].Label.Begin, BytesSpanSize(&parts[i].Label));
+        messagePtr += BytesSpanSize(&parts[i].Label);
+        *messagePtr++ = '\"';
+        *messagePtr++ = ':';
+        memcpy(messagePtr, parts[i].Value.Begin, BytesSpanSize(&parts[i].Value));
+        messagePtr += BytesSpanSize(&parts[i].Value);
+        if (i < partNumber - 1) {
+            *messagePtr++ = ',';
+        }
+    }
+    *messagePtr++ = '}';
+    *messagePtr = '\0';
+
+    Log_Debug("Telemetry message: \"%s\"\n", message);
+
+    bool ret = AzureDeviceClientSendTelemetryAsync(DeviceClient, message);
     assert(ret);
 }
 
