@@ -23,4 +23,4 @@ void AzureDeviceClientDoWork(AzureDeviceClient_t* context);
 bool AzureDeviceClientConnectIoTHubUsingDAA(AzureDeviceClient_t* context, const char* iotHubHostName, const char* deviceId);
 void AzureDeviceClientDisconnect(AzureDeviceClient_t* context);
 
-bool AzureDeviceClientSendTelemetryAsync(AzureDeviceClient_t* context, JSON_Object* telemetryObject);
+bool AzureDeviceClientSendTelemetryAsync(AzureDeviceClient_t* context, const char* messageString);

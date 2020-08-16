@@ -90,7 +90,7 @@ static void ButtonTimerEventHandler(EventLoopTimer* timer)
     }
 
     const bool newButtonValue = GpioReadInv(ButtonFd);
-    if (!ButtonValue && newButtonValue) UartSend(UartFd, "label1:11,label2:22,3:,:4,5,:\n");
+    if (!ButtonValue && newButtonValue) UartSend(UartFd, "label1:11,label2:22\n");
     ButtonValue = newButtonValue;
 }
 
@@ -195,16 +195,8 @@ static void MessageReceivedHandler(BytesSpan_t messageSpan)
     }
     Log_Debug("===\n");
 
-    JSON_Value* telemetryValue = json_value_init_object();
-    JSON_Object* telemetryObject = json_value_get_object(telemetryValue);
-
-    json_object_set_boolean(telemetryObject, "value", true);    // TODO
-
-    bool ret = AzureDeviceClientSendTelemetryAsync(DeviceClient, telemetryObject);
+    bool ret = AzureDeviceClientSendTelemetryAsync(DeviceClient, "{\"testVariable\":12.34}");
     assert(ret);
-
-    json_value_free(telemetryValue);
-
 }
 
 static void UartReceiveHandler(EventLoop* el, int fd, EventLoop_IoEvents events, void* context)

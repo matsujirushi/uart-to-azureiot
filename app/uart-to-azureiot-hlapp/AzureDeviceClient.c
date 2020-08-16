@@ -71,14 +71,12 @@ void AzureDeviceClientDisconnect(AzureDeviceClient_t* context)
 	}
 }
 
-bool AzureDeviceClientSendTelemetryAsync(AzureDeviceClient_t* context, JSON_Object* telemetryObject)
+bool AzureDeviceClientSendTelemetryAsync(AzureDeviceClient_t* context, const char* messageString)
 {
 	assert(context != NULL);
-	assert(telemetryObject != NULL);
+	assert(messageString != NULL);
 
-	char* jsonString = json_serialize_to_string(json_object_get_wrapping_value(telemetryObject));
-	IOTHUB_MESSAGE_HANDLE messageHandle = IoTHubMessage_CreateFromString(jsonString);
-	json_free_serialized_string(jsonString);
+	IOTHUB_MESSAGE_HANDLE messageHandle = IoTHubMessage_CreateFromString(messageString);
 	if (messageHandle == NULL) return false;
 
 	bool ret = false;
