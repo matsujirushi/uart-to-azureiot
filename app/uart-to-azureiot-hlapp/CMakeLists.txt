@@ -18,8 +18,8 @@ add_compile_options(-DSPI_STRUCTS_VERSION=1)
 add_subdirectory(../../lib/eventloop_timer_utilities lib/eventloop_timer_utilities)
 
 # Executable
-add_executable(${PROJECT_NAME} main.c Exit.c Termination.c Gpio.c BytesSpan.c MessageParser.c)
-target_link_libraries(${PROJECT_NAME} applibs pthread gcc_s c eventloop_timer_utilities)
+add_executable(${PROJECT_NAME} main.c Exit.c Termination.c Gpio.c BytesSpan.c MessageParser.c parson.c AzureDeviceClient.c)
+target_link_libraries(${PROJECT_NAME} azureiot applibs pthread gcc_s c eventloop_timer_utilities)
 
 azsphere_target_hardware_definition(${PROJECT_NAME} TARGET_DIRECTORY "../../hardware-definitions" TARGET_DEFINITION "uart-to-azureiot.json")
 azsphere_target_add_image_package(${PROJECT_NAME})

@@ -14,11 +14,13 @@
 #include "Termination.h"
 #include "Gpio.h"
 #include "MessageParser.h"
+#include "AzureDeviceClient.h"
 
 #include <applibs/uart.h>
 #include <applibs/gpio.h>
 #include <applibs/log.h>
 #include <applibs/eventloop.h>
+#include <applibs/networking.h>
 
 #include "../../hardware-definitions/inc/hw/uart-to-azureiot.h"
 
@@ -46,6 +48,10 @@ static int UartFd = -1;             // fd
 
 static int ButtonFd = -1;           // fd
 static bool ButtonValue = false;
+
+static const char* IoTHubHostName = "matsujirushi-iothub.azure-devices.net";
+static const char* DeviceId = "961b0f3af5c4ea9581512975f8e21a81dfed93bef7a73854d802c8bdeff7f5a8516639b653e6f082009f5c660c9b96bb1b16f49a56d7de51a089ac01ae3376ec";
+static AzureDeviceClient_t* DeviceClient;
 
 static EventLoop* EvLoop = NULL;
 static EventRegistration* EvRegUart = NULL;
@@ -188,6 +194,17 @@ static void MessageReceivedHandler(BytesSpan_t messageSpan)
         }
     }
     Log_Debug("===\n");
+
+    JSON_Value* telemetryValue = json_value_init_object();
+    JSON_Object* telemetryObject = json_value_get_object(telemetryValue);
+
+    json_object_set_boolean(telemetryObject, "value", true);    // TODO
+
+    bool ret = AzureDeviceClientSendTelemetryAsync(DeviceClient, telemetryObject);
+    assert(ret);
+
+    json_value_free(telemetryValue);
+
 }
 
 static void UartReceiveHandler(EventLoop* el, int fd, EventLoop_IoEvents events, void* context)
@@ -268,10 +285,27 @@ int main(int argc, char* argv[])
     Log_Debug("Application starting.\n");
     InitPeripheralsAndHandlers();
 
+    Log_Debug("Wait for connect to internet.\n");
+    while (true) {
+        Networking_InterfaceConnectionStatus status;
+        if (Networking_GetInterfaceConnectionStatus("wlan0", &status) == 0) {
+            if (status & Networking_InterfaceConnectionStatus_ConnectedToInternet) break;
+        }
+    }
+    Log_Debug("Internet is connected.\n");
+
+    DeviceClient = AzureDeviceClientNew();
+    assert(DeviceClient != NULL);
+    bool ret = AzureDeviceClientConnectIoTHubUsingDAA(DeviceClient, IoTHubHostName, DeviceId);
+    assert(ret);
+
     while (!Exit_IsExit()) {
         const EventLoop_Run_Result result = EventLoop_Run(EvLoop, -1, true);
         if (result == EventLoop_Run_Failed && errno != EINTR) Exit_DoExit(ExitCode_Main_EventLoopFail);
+        AzureDeviceClientDoWork(DeviceClient);
     }
+
+    AzureDeviceClientDelete(DeviceClient);
 
     Log_Debug("Application exiting.\n");
     ClosePeripheralsAndHandlers();
