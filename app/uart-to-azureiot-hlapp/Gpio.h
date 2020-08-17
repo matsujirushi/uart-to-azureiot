@@ -9,3 +9,5 @@
 
 bool GpioRead(int gpioFd);
 bool GpioReadInv(int gpioFd);
+void GpioWrite(int gpioFd, bool value);
+void GpioWriteInv(int gpioFd, bool value);

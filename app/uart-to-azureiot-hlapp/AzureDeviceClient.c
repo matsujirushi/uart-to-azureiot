@@ -8,6 +8,8 @@
 #include <azureiot/iothubtransportmqtt.h>
 #include <azure_prov_client/iothub_security_factory.h>
 
+static void AzureDeviceClientConnectionStateCallback(IOTHUB_CLIENT_CONNECTION_STATUS result, IOTHUB_CLIENT_CONNECTION_STATUS_REASON reason, void* ctx);
+
 AzureDeviceClient_t* AzureDeviceClientNew(void)
 {
 	AzureDeviceClient_t* context = (AzureDeviceClient_t*)malloc(sizeof(AzureDeviceClient_t));
@@ -56,6 +58,8 @@ bool AzureDeviceClientConnectIoTHubUsingDAA(AzureDeviceClient_t* context, const 
 	const int deviceIdForDaaCertUsage = 1; // A constant used to direct the IoT SDK to use the DAA cert under the hood.
 	if (IoTHubDeviceClient_LL_SetOption(context->Handle, "SetDeviceId", &deviceIdForDaaCertUsage) != IOTHUB_CLIENT_OK) return false;
 
+	if (IoTHubDeviceClient_LL_SetConnectionStatusCallback(context->Handle, AzureDeviceClientConnectionStateCallback, context) != IOTHUB_CLIENT_OK) return false;
+
 	return true;
 }
 
@@ -92,4 +96,11 @@ bool AzureDeviceClientSendTelemetryAsync(AzureDeviceClient_t* context, const cha
 
 bye:
 	return ret;
+}
+
+static void AzureDeviceClientConnectionStateCallback(IOTHUB_CLIENT_CONNECTION_STATUS result, IOTHUB_CLIENT_CONNECTION_STATUS_REASON reason, void* ctx)
+{
+	AzureDeviceClient_t* context = (AzureDeviceClient_t*)ctx;
+
+	context->Connected = result == IOTHUB_CLIENT_CONNECTION_AUTHENTICATED;
 }

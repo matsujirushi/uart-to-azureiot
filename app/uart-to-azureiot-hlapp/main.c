@@ -31,31 +31,36 @@ typedef enum {
     ExitCode_Success                = 0,
     ExitCode_SigTerm                = 1,
 
-    ExitCode_Init_OpenButton        = 2,
-    ExitCode_Init_UartOpen          = 3,
-    ExitCode_Init_EventLoop         = 4,
-    ExitCode_Init_ButtonPollTimer   = 5,
-    ExitCode_Init_RegisterIo        = 6,
+    ExitCode_Init_EventLoop         = 2,
+    ExitCode_Init_ButtonPollTimer   = 3,
+    ExitCode_Init_RegisterIo        = 4,
+    ExitCode_Init_AzureTimer        = 5,
 
-    ExitCode_Main_EventLoopFail     = 7,
+    ExitCode_Main_EventLoopFail     = 6,
 
-    ExitCode_ButtonTimer_Consume    = 8,
+    ExitCode_ButtonTimer_Consume    = 7,
+    ExitCode_AzureTimer_Consume     = 8,
     ExitCode_SendMessage_Write      = 9,
     ExitCode_UartEvent_Read         = 10,
 } ExitCode;
 
-static int UartFd = -1;             // fd
+static int NetworkingLedGreen = -1; // fd
+static int NetworkingLedBlue = -1;  // fd
 
 static int ButtonFd = -1;           // fd
 static bool ButtonValue = false;
 
+static int UartFd = -1;             // fd
+
+static const char* NetworkInterface = "wlan0";
 static const char* IoTHubHostName = "matsujirushi-iothub.azure-devices.net";
 static const char* DeviceId = "961b0f3af5c4ea9581512975f8e21a81dfed93bef7a73854d802c8bdeff7f5a8516639b653e6f082009f5c660c9b96bb1b16f49a56d7de51a089ac01ae3376ec";
 static AzureDeviceClient_t* DeviceClient;
 
 static EventLoop* EvLoop = NULL;
-static EventRegistration* EvRegUart = NULL;
 static EventLoopTimer* EvTimerButton = NULL;
+static EventRegistration* EvRegUart = NULL;
+static EventLoopTimer* EvAzureTimer = NULL;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Uart Send
@@ -71,7 +76,7 @@ static void UartSend(int uartFd, const char* dataToSend)
         size_t bytesLeftToSend = totalBytesToSend - totalBytesSent;
         const char* remainingMessageToSend = dataToSend + totalBytesSent;
         const ssize_t bytesSent = write(uartFd, remainingMessageToSend, bytesLeftToSend);
-        if (bytesSent == -1) {
+        if (bytesSent < 0) {
             Exit_DoExitWithLog(ExitCode_SendMessage_Write, "ERROR: write() - %s (%d)\n", strerror(errno), errno);
             return;
         }
@@ -84,7 +89,7 @@ static void UartSend(int uartFd, const char* dataToSend)
 
 static void ButtonTimerEventHandler(EventLoopTimer* timer)
 {
-    if (ConsumeEventLoopTimerEvent(timer) == -1) {
+    if (ConsumeEventLoopTimerEvent(timer) != 0) {
         Exit_DoExit(ExitCode_ButtonTimer_Consume);
         return;
     }
@@ -226,7 +231,7 @@ static void UartReceiveHandler(EventLoop* el, int fd, EventLoop_IoEvents events,
 
     assert(buffer.Begin != buffer.End);
     const ssize_t readSize = read(UartFd, buffer.Begin, BytesSpanSize(&buffer));
-    if (readSize == -1) {
+    if (readSize < 0) {
         Exit_DoExitWithLog(ExitCode_UartEvent_Read, "ERROR: read() - %s (%d)\n", strerror(errno), errno);
         return;
     }
@@ -239,26 +244,63 @@ static void UartReceiveHandler(EventLoop* el, int fd, EventLoop_IoEvents events,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// Azure IoT
+
+static void AzureTimerEventHandler(EventLoopTimer* timer)
+{
+    if (ConsumeEventLoopTimerEvent(timer) != 0) {
+        Exit_DoExit(ExitCode_AzureTimer_Consume);
+    }
+
+    Networking_InterfaceConnectionStatus status;
+    if (Networking_GetInterfaceConnectionStatus(NetworkInterface, &status) != 0 || !(status & Networking_InterfaceConnectionStatus_ConnectedToInternet)) {
+        GpioWriteInv(NetworkingLedGreen, false);
+        GpioWriteInv(NetworkingLedBlue, false);
+    }
+    else
+    {
+        if (DeviceClient == NULL) {
+            GpioWriteInv(NetworkingLedGreen, false);
+            GpioWriteInv(NetworkingLedBlue, true);
+        }
+        else
+        {
+            AzureDeviceClientDoWork(DeviceClient);
+
+            if (!AzureDeviceClientIsConnected(DeviceClient)) {
+                GpioWriteInv(NetworkingLedGreen, false);
+                GpioWriteInv(NetworkingLedBlue, true);
+            }
+            else
+            {
+                GpioWriteInv(NetworkingLedGreen, true);
+                GpioWriteInv(NetworkingLedBlue, false);
+            }
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // Init & Close
 
 static void InitPeripheralsAndHandlers(void)
 {
     Termination_SetExitCode(ExitCode_SigTerm);
 
+    NetworkingLedGreen = GPIO_OpenAsOutput(NETWORKING_LED_GREEN, GPIO_OutputMode_PushPull, GPIO_Value_High);
+    assert(NetworkingLedGreen >= 0);
+    NetworkingLedBlue = GPIO_OpenAsOutput(NETWORKING_LED_BLUE, GPIO_OutputMode_PushPull, GPIO_Value_High);
+    assert(NetworkingLedBlue >= 0);
+
     ButtonFd = GPIO_OpenAsInput(SEND_BUTTON);
-    if (ButtonFd == -1) {
-        Exit_DoExitWithLog(ExitCode_Init_OpenButton, "ERROR: GPIO_OpenAsInput() - %s (%d)\n", strerror(errno), errno);
-        return;
-    }
+    assert(ButtonFd >= 0);
+
     UART_Config uartConfig;
     UART_InitConfig(&uartConfig);
     uartConfig.baudRate = 115200;
     uartConfig.flowControl = UART_FlowControl_None;
     UartFd = UART_Open(ARDUINO_UART, &uartConfig);
-    if (UartFd == -1) {
-        Exit_DoExitWithLog(ExitCode_Init_UartOpen, "ERROR: UART_Open() - %s (%d)\n", strerror(errno), errno);
-        return;
-    }
+    assert(UartFd >= 0);
 
     MessageParserSetMessageReceivedHandler(MessageReceivedHandler);
 
@@ -278,6 +320,13 @@ static void InitPeripheralsAndHandlers(void)
         Exit_DoExitWithLog(ExitCode_Init_RegisterIo, "ERROR: EventLoop_RegisterIo() - %s (%d)\n", strerror(errno), errno);
         return;
     }
+    const struct timespec azurePeriod = { .tv_sec = 1, .tv_nsec = 0 };
+    EvAzureTimer = CreateEventLoopPeriodicTimer(EvLoop, &AzureTimerEventHandler, &azurePeriod);
+    if (EvAzureTimer == NULL) {
+        Exit_DoExitWithLog(ExitCode_Init_AzureTimer, "ERROR: CreateEventLoopPeriodicTimer() - %s (%d)\n", strerror(errno), errno);
+        return;
+    }
+
 }
 
 static void ClosePeripheralsAndHandlers(void)
@@ -301,7 +350,7 @@ int main(int argc, char* argv[])
     Log_Debug("Wait for connect to internet.\n");
     while (true) {
         Networking_InterfaceConnectionStatus status;
-        if (Networking_GetInterfaceConnectionStatus("wlan0", &status) == 0) {
+        if (Networking_GetInterfaceConnectionStatus(NetworkInterface, &status) == 0) {
             if (status & Networking_InterfaceConnectionStatus_ConnectedToInternet) break;
         }
     }
@@ -315,7 +364,6 @@ int main(int argc, char* argv[])
     while (!Exit_IsExit()) {
         const EventLoop_Run_Result result = EventLoop_Run(EvLoop, -1, true);
         if (result == EventLoop_Run_Failed && errno != EINTR) Exit_DoExit(ExitCode_Main_EventLoopFail);
-        AzureDeviceClientDoWork(DeviceClient);
     }
 
     AzureDeviceClientDelete(DeviceClient);

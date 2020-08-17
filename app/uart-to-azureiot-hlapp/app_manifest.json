@@ -5,8 +5,8 @@
   "EntryPoint": "/bin/app",
   "CmdArgs": [],
   "Capabilities": {
-    "Gpio": [ "$MT3620_RDB_BUTTON_A" ],
-    "Uart": [ "$MT3620_RDB_HEADER2_ISU0_UART" ],
+    "Gpio": [ "$NETWORKING_LED_GREEN", "$NETWORKING_LED_BLUE", "$SEND_BUTTON" ],
+    "Uart": [ "$ARDUINO_UART" ],
     "AllowedConnections": [ "matsujirushi-iothub.azure-devices.net" ],
     "DeviceAuthentication": "31908d60-fc8a-4403-b739-348ee8705d66",
     "AllowedApplicationConnections": []

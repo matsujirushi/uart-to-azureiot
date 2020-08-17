@@ -9,6 +9,8 @@
     },
     "Imports" : [ {"Path": "mt3620_rdb.json"} ],
     "Peripherals": [
+        {"Name": "NETWORKING_LED_GREEN", "Type": "Gpio", "Mapping": "MT3620_RDB_NETWORKING_LED_GREEN", "Comment": "WIFI_STATUS_GREEN"},
+        {"Name": "NETWORKING_LED_BLUE", "Type": "Gpio", "Mapping": "MT3620_RDB_NETWORKING_LED_BLUE", "Comment": "WIFI_STATUS_BLUE"},
         {"Name": "SEND_BUTTON", "Type": "Gpio", "Mapping": "MT3620_RDB_BUTTON_A", "Comment": "SEND_BUTTON"},
         {"Name": "ARDUINO_UART", "Type": "Uart", "Mapping": "MT3620_RDB_HEADER2_ISU0_UART", "Comment": "ARDUINO_UART"}
     ]
