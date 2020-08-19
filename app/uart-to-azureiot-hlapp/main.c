@@ -44,6 +44,12 @@ typedef enum {
     ExitCode_UartEvent_Read         = 10,
 } ExitCode;
 
+typedef enum {
+    NetworkState_NoInternet,
+    NetworkState_ConnectingAzureIoT,
+    NetworkState_ConnectedAzureIoT,
+} NetworkState_t;
+
 static int NetworkingLedGreen = -1; // fd
 static int NetworkingLedBlue = -1;  // fd
 
@@ -52,10 +58,11 @@ static bool ButtonValue = false;
 
 static int UartFd = -1;             // fd
 
+static NetworkState_t NetworkState = NetworkState_NoInternet;
 static const char* NetworkInterface = "wlan0";
 static const char* IoTHubHostName = "matsujirushi-iothub.azure-devices.net";
 static const char* DeviceId = "961b0f3af5c4ea9581512975f8e21a81dfed93bef7a73854d802c8bdeff7f5a8516639b653e6f082009f5c660c9b96bb1b16f49a56d7de51a089ac01ae3376ec";
-static AzureDeviceClient_t* DeviceClient;
+static AzureDeviceClient_t* DeviceClient = NULL;
 
 static EventLoop* EvLoop = NULL;
 static EventLoopTimer* EvTimerButton = NULL;
@@ -220,9 +227,13 @@ static void MessageReceivedHandler(BytesSpan_t messageSpan)
     *messagePtr = '\0';
 
     Log_Debug("Telemetry message: \"%s\"\n", message);
-
-    bool ret = AzureDeviceClientSendTelemetryAsync(DeviceClient, message);
-    assert(ret);
+    if (NetworkState == NetworkState_ConnectedAzureIoT) {
+        bool ret = AzureDeviceClientSendTelemetryAsync(DeviceClient, message);
+        assert(ret);
+    }
+    else {
+        Log_Debug("Cannot send telemetry message.\n");
+    }
 }
 
 static void UartReceiveHandler(EventLoop* el, int fd, EventLoop_IoEvents events, void* context)
@@ -246,37 +257,84 @@ static void UartReceiveHandler(EventLoop* el, int fd, EventLoop_IoEvents events,
 ////////////////////////////////////////////////////////////////////////////////
 // Azure IoT
 
+static bool IsInternetConnected()
+{
+    Networking_InterfaceConnectionStatus status;
+    if (Networking_GetInterfaceConnectionStatus(NetworkInterface, &status) != 0) return false;
+    if (!(status & Networking_InterfaceConnectionStatus_ConnectedToInternet)) return false;
+
+    return true;
+}
+
+static void ConnectAzureIoT()
+{
+    assert(DeviceClient == NULL);
+    DeviceClient = AzureDeviceClientNew();
+    assert(DeviceClient != NULL);
+    bool ret = AzureDeviceClientConnectIoTHubUsingDAA(DeviceClient, IoTHubHostName, DeviceId);
+    assert(ret);
+}
+
+static void DisconnectAzureIoT()
+{
+    AzureDeviceClientDisconnect(DeviceClient);
+    AzureDeviceClientDelete(DeviceClient);
+    DeviceClient = NULL;
+}
+
 static void AzureTimerEventHandler(EventLoopTimer* timer)
 {
     if (ConsumeEventLoopTimerEvent(timer) != 0) {
         Exit_DoExit(ExitCode_AzureTimer_Consume);
     }
 
-    Networking_InterfaceConnectionStatus status;
-    if (Networking_GetInterfaceConnectionStatus(NetworkInterface, &status) != 0 || !(status & Networking_InterfaceConnectionStatus_ConnectedToInternet)) {
+    if (DeviceClient != NULL) AzureDeviceClientDoWork(DeviceClient);
+
+    switch (NetworkState) {
+    case NetworkState_NoInternet:
+        if (IsInternetConnected())
+        {
+            ConnectAzureIoT();
+            NetworkState = NetworkState_ConnectingAzureIoT;
+        }
+        break;
+    case NetworkState_ConnectingAzureIoT:
+        if (!IsInternetConnected())
+        {
+            DisconnectAzureIoT();
+            NetworkState = NetworkState_NoInternet;
+        }
+        if (AzureDeviceClientIsConnected(DeviceClient))
+        {
+            NetworkState = NetworkState_ConnectedAzureIoT;
+        }
+        break;
+    case NetworkState_ConnectedAzureIoT:
+        if (!IsInternetConnected() || !AzureDeviceClientIsConnected(DeviceClient))
+        {
+            DisconnectAzureIoT();
+            NetworkState = NetworkState_NoInternet;
+        }
+        break;
+    default:
+        abort();
+    }
+
+    switch (NetworkState) {
+    case NetworkState_NoInternet:
         GpioWriteInv(NetworkingLedGreen, false);
         GpioWriteInv(NetworkingLedBlue, false);
-    }
-    else
-    {
-        if (DeviceClient == NULL) {
-            GpioWriteInv(NetworkingLedGreen, false);
-            GpioWriteInv(NetworkingLedBlue, true);
-        }
-        else
-        {
-            AzureDeviceClientDoWork(DeviceClient);
-
-            if (!AzureDeviceClientIsConnected(DeviceClient)) {
-                GpioWriteInv(NetworkingLedGreen, false);
-                GpioWriteInv(NetworkingLedBlue, true);
-            }
-            else
-            {
-                GpioWriteInv(NetworkingLedGreen, true);
-                GpioWriteInv(NetworkingLedBlue, false);
-            }
-        }
+        break;
+    case NetworkState_ConnectingAzureIoT:
+        GpioWriteInv(NetworkingLedGreen, false);
+        GpioWriteInv(NetworkingLedBlue, true);
+        break;
+    case NetworkState_ConnectedAzureIoT:
+        GpioWriteInv(NetworkingLedGreen, true);
+        GpioWriteInv(NetworkingLedBlue, false);
+        break;
+    default:
+        abort();
     }
 }
 
@@ -326,7 +384,6 @@ static void InitPeripheralsAndHandlers(void)
         Exit_DoExitWithLog(ExitCode_Init_AzureTimer, "ERROR: CreateEventLoopPeriodicTimer() - %s (%d)\n", strerror(errno), errno);
         return;
     }
-
 }
 
 static void ClosePeripheralsAndHandlers(void)
@@ -346,20 +403,6 @@ int main(int argc, char* argv[])
 {
     Log_Debug("Application starting.\n");
     InitPeripheralsAndHandlers();
-
-    Log_Debug("Wait for connect to internet.\n");
-    while (true) {
-        Networking_InterfaceConnectionStatus status;
-        if (Networking_GetInterfaceConnectionStatus(NetworkInterface, &status) == 0) {
-            if (status & Networking_InterfaceConnectionStatus_ConnectedToInternet) break;
-        }
-    }
-    Log_Debug("Internet is connected.\n");
-
-    DeviceClient = AzureDeviceClientNew();
-    assert(DeviceClient != NULL);
-    bool ret = AzureDeviceClientConnectIoTHubUsingDAA(DeviceClient, IoTHubHostName, DeviceId);
-    assert(ret);
 
     while (!Exit_IsExit()) {
         const EventLoop_Run_Result result = EventLoop_Run(EvLoop, -1, true);
