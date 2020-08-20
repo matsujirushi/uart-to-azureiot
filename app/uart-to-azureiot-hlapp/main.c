@@ -10,6 +10,8 @@
 #include <time.h>
 #include <unistd.h>
 #include <assert.h>
+#include <getopt.h>
+#include <ctype.h>
 #include "Exit.h"
 #include "Termination.h"
 #include "Gpio.h"
@@ -28,21 +30,32 @@
 
 // Exit Code for Application
 typedef enum {
-    ExitCode_Success                = 0,
-    ExitCode_SigTerm                = 1,
+    ExitCode_Success                    = 0,
+    ExitCode_SigTerm                    = 1,
 
-    ExitCode_Init_EventLoop         = 2,
-    ExitCode_Init_ButtonPollTimer   = 3,
-    ExitCode_Init_RegisterIo        = 4,
-    ExitCode_Init_AzureTimer        = 5,
+    ExitCode_Validate_ConnectionType    = 2,
+    ExitCode_Validate_ScopeId           = 3,
+    ExitCode_Validate_IotHubHostname    = 4,
+    ExitCode_Validate_DeviceId          = 5,
 
-    ExitCode_Main_EventLoopFail     = 6,
+    ExitCode_Init_EventLoop             = 6,
+    ExitCode_Init_ButtonPollTimer       = 7,
+    ExitCode_Init_RegisterIo            = 8,
+    ExitCode_Init_AzureTimer            = 9,
 
-    ExitCode_ButtonTimer_Consume    = 7,
-    ExitCode_AzureTimer_Consume     = 8,
-    ExitCode_SendMessage_Write      = 9,
-    ExitCode_UartEvent_Read         = 10,
+    ExitCode_Main_EventLoopFail         = 10,
+
+    ExitCode_ButtonTimer_Consume        = 11,
+    ExitCode_AzureTimer_Consume         = 12,
+    ExitCode_SendMessage_Write          = 13,
+    ExitCode_UartEvent_Read             = 14,
 } ExitCode;
+
+typedef enum {
+    ConnectionType_NotDefined   = 0,
+    ConnectionType_DPS          = 1,
+    ConnectionType_Direct       = 2
+} ConnectionType_t;
 
 typedef enum {
     NetworkState_NoInternet,
@@ -58,10 +71,12 @@ static bool ButtonValue = false;
 
 static int UartFd = -1;             // fd
 
+static ConnectionType_t ConnectionType = ConnectionType_NotDefined; // Type of connection to use.
+static char* ScopeId = NULL;
+static char* IoTHubHostName = NULL;
+static char* DeviceId = NULL;
 static NetworkState_t NetworkState = NetworkState_NoInternet;
 static const char* NetworkInterface = "wlan0";
-static const char* IoTHubHostName = "matsujirushi-iothub.azure-devices.net";
-static const char* DeviceId = "961b0f3af5c4ea9581512975f8e21a81dfed93bef7a73854d802c8bdeff7f5a8516639b653e6f082009f5c660c9b96bb1b16f49a56d7de51a089ac01ae3376ec";
 static AzureDeviceClient_t* DeviceClient = NULL;
 
 static EventLoop* EvLoop = NULL;
@@ -257,7 +272,7 @@ static void UartReceiveHandler(EventLoop* el, int fd, EventLoop_IoEvents events,
 ////////////////////////////////////////////////////////////////////////////////
 // Azure IoT
 
-static bool IsInternetConnected()
+static bool IsInternetConnected(void)
 {
     Networking_InterfaceConnectionStatus status;
     if (Networking_GetInterfaceConnectionStatus(NetworkInterface, &status) != 0) return false;
@@ -266,7 +281,7 @@ static bool IsInternetConnected()
     return true;
 }
 
-static void ConnectAzureIoT()
+static void ConnectAzureIoT(void)
 {
     assert(DeviceClient == NULL);
     DeviceClient = AzureDeviceClientNew();
@@ -275,7 +290,7 @@ static void ConnectAzureIoT()
     assert(ret);
 }
 
-static void DisconnectAzureIoT()
+static void DisconnectAzureIoT(void)
 {
     AzureDeviceClientDisconnect(DeviceClient);
     AzureDeviceClientDelete(DeviceClient);
@@ -399,22 +414,115 @@ static void ClosePeripheralsAndHandlers(void)
 ////////////////////////////////////////////////////////////////////////////////
 // main
 
+static void ParseCommandLineArguments(int argc, char* argv[])
+{
+    int option = 0;
+    static const struct option cmdLineOptions[] = {
+        { "ConnectionType", required_argument, NULL, 'c'},
+        { "ScopeID"       , required_argument, NULL, 's'},
+        { "Hostname"      , required_argument, NULL, 'h'},
+        { "DeviceID"      , required_argument, NULL, 'd'},
+        { NULL            , 0                , NULL, 0  }
+    };
+
+    while ((option = getopt_long(argc, argv, "c:s:h:d:", cmdLineOptions, NULL)) != -1) {
+        if (optarg != NULL && optarg[0] == '-') {
+            Log_Debug("Warning: Option %c requires an argument\n", option);
+            continue;
+        }
+        switch (option) {
+        case 'c':
+            Log_Debug("ConnectionType: %s\n", optarg);
+            if (strcmp(optarg, "DPS") == 0) {
+                ConnectionType = ConnectionType_DPS;
+            }
+            else if (strcmp(optarg, "Direct") == 0) {
+                ConnectionType = ConnectionType_Direct;
+            }
+            break;
+        case 's':
+            Log_Debug("ScopeID: %s\n", optarg);
+            ScopeId = optarg;
+            break;
+        case 'h':
+            Log_Debug("Hostname: %s\n", optarg);
+            IoTHubHostName = optarg;
+            break;
+        case 'd':
+            Log_Debug("DeviceID: %s\n", optarg);
+            DeviceId = optarg;
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+static ExitCode ValidateUserConfiguration(void)
+{
+    ExitCode validationExitCode = ExitCode_Success;
+
+    switch (ConnectionType) {
+    case ConnectionType_DPS:
+        if (ScopeId == NULL) {
+            validationExitCode = ExitCode_Validate_ScopeId;
+        }
+        else {
+            Log_Debug("Using DPS Connection: Azure IoT DPS Scope ID %s\n", ScopeId);
+        }
+        break;
+    case ConnectionType_Direct:
+        if (IoTHubHostName == NULL) {
+            validationExitCode = ExitCode_Validate_IotHubHostname;
+        }
+        else if (DeviceId == NULL) {
+            validationExitCode = ExitCode_Validate_DeviceId;
+        }
+        if (DeviceId != NULL) {
+            // Validate that device ID is in lowercase.
+            size_t len = strlen(DeviceId);
+            for (size_t i = 0; i < len; i++) {
+                if (isupper(DeviceId[i])) {
+                    Log_Debug("Device ID must be in lowercase.\n");
+                    return ExitCode_Validate_DeviceId;
+                }
+            }
+        }
+        if (validationExitCode == ExitCode_Success) {
+            Log_Debug("Using Direct Connection: Azure IoT Hub Hostname %s\n", IoTHubHostName);
+        }
+        break;
+    default:
+        validationExitCode = ExitCode_Validate_ConnectionType;
+        break;
+    }
+
+    return validationExitCode;
+}
+
 int main(int argc, char* argv[])
 {
     Log_Debug("Application starting.\n");
-    InitPeripheralsAndHandlers();
 
-    while (!Exit_IsExit()) {
-        const EventLoop_Run_Result result = EventLoop_Run(EvLoop, -1, true);
-        if (result == EventLoop_Run_Failed && errno != EINTR) Exit_DoExit(ExitCode_Main_EventLoopFail);
+    ParseCommandLineArguments(argc, argv);
+    int exitCode = ValidateUserConfiguration();
+    if (exitCode != ExitCode_Success) {
+        Exit_DoExit(exitCode);
+    }
+    else {
+        InitPeripheralsAndHandlers();
+
+        while (!Exit_IsExit()) {
+            const EventLoop_Run_Result result = EventLoop_Run(EvLoop, -1, true);
+            if (result == EventLoop_Run_Failed && errno != EINTR) Exit_DoExit(ExitCode_Main_EventLoopFail);
+        }
+
+        Log_Debug("Application exiting.\n");
+        if (DeviceClient != NULL) DisconnectAzureIoT();
+        ClosePeripheralsAndHandlers();
     }
 
-    AzureDeviceClientDelete(DeviceClient);
-
-    Log_Debug("Application exiting.\n");
-    ClosePeripheralsAndHandlers();
-
-    const int exitCode = Exit_GetExitCode();
+    exitCode = Exit_GetExitCode();
     Log_Debug("Exit Code is %d.\n", exitCode);
 
     return exitCode;
