@@ -6,6 +6,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <azureiot/iothubtransportmqtt.h>
+#include <azureiot/azure_sphere_provisioning.h>
 #include <azure_prov_client/iothub_security_factory.h>
 
 static void AzureDeviceClientConnectionStateCallback(IOTHUB_CLIENT_CONNECTION_STATUS result, IOTHUB_CLIENT_CONNECTION_STATUS_REASON reason, void* ctx);
@@ -62,6 +63,23 @@ bool AzureDeviceClientConnectIoTHubUsingDAA(AzureDeviceClient_t* context, const 
 
 	return true;
 }
+
+bool AzureDeviceClientConnectIoTHubUsingDPS(AzureDeviceClient_t* context, const char* scopeId)
+{
+	assert(context != NULL);
+
+	if (context->Handle != NULL) return false;
+
+	IOTHUB_DEVICE_CLIENT_LL_HANDLE handle;
+	AZURE_SPHERE_PROV_RETURN_VALUE provResult = IoTHubDeviceClient_LL_CreateWithAzureSphereDeviceAuthProvisioning(scopeId, 10000, &handle);
+	if (provResult.result != AZURE_SPHERE_PROV_RESULT_OK) return false;
+
+	context->Handle = handle;
+	if (IoTHubDeviceClient_LL_SetConnectionStatusCallback(context->Handle, AzureDeviceClientConnectionStateCallback, context) != IOTHUB_CLIENT_OK) return false;
+
+	return true;
+}
+
 
 void AzureDeviceClientDisconnect(AzureDeviceClient_t* context)
 {

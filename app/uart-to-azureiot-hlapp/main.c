@@ -286,7 +286,17 @@ static void ConnectAzureIoT(void)
     assert(DeviceClient == NULL);
     DeviceClient = AzureDeviceClientNew();
     assert(DeviceClient != NULL);
-    bool ret = AzureDeviceClientConnectIoTHubUsingDAA(DeviceClient, IoTHubHostName, DeviceId);
+    bool ret;
+    switch (ConnectionType) {
+    case ConnectionType_Direct:
+        ret = AzureDeviceClientConnectIoTHubUsingDAA(DeviceClient, IoTHubHostName, DeviceId);
+        break;
+    case ConnectionType_DPS:
+        ret = AzureDeviceClientConnectIoTHubUsingDPS(DeviceClient, ScopeId);
+        break;
+    default:
+        abort();
+    }
     assert(ret);
 }
 

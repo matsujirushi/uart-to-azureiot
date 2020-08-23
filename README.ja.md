@@ -34,11 +34,11 @@ TBD
 
 ## ロードマップ
 
-**Phase 1**　<--- イマココ
+**Phase 1**
 * テレメトリ機能のみ。（シリアルプロッタと同一プロトコル）
 * 接続先はAzure IoT Hubのみ。
 
-**Phase 2**
+**Phase 2**  <--- イマココ
 * Azure IoT Hub DPSに対応。
 * Azure IoT Centralに対応。
 

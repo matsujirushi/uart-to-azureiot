@@ -21,6 +21,7 @@ bool AzureDeviceClientIsConnected(const AzureDeviceClient_t* context);
 void AzureDeviceClientDoWork(AzureDeviceClient_t* context);
 
 bool AzureDeviceClientConnectIoTHubUsingDAA(AzureDeviceClient_t* context, const char* iotHubHostName, const char* deviceId);
+bool AzureDeviceClientConnectIoTHubUsingDPS(AzureDeviceClient_t* context, const char* scopeId);
 void AzureDeviceClientDisconnect(AzureDeviceClient_t* context);
 
 bool AzureDeviceClientSendTelemetryAsync(AzureDeviceClient_t* context, const char* messageString);

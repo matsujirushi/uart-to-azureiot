@@ -4,13 +4,14 @@
   "ComponentId": "d92583e1-9b72-444d-8992-73d6bfbb66ce",
   "EntryPoint": "/bin/app",
   "CmdArgs": [
-    "--ConnectionType DPS",
-    "--ScopeID 0ne0015BEBB"
+    "--ConnectionType Direct",
+    "--Hostname matsujirushi-iothub.azure-devices.net",
+    "--DeviceID 961b0f3af5c4ea9581512975f8e21a81dfed93bef7a73854d802c8bdeff7f5a8516639b653e6f082009f5c660c9b96bb1b16f49a56d7de51a089ac01ae3376ec"
   ],
   "Capabilities": {
     "Gpio": [ "$NETWORKING_LED_GREEN", "$NETWORKING_LED_BLUE", "$SEND_BUTTON" ],
     "Uart": [ "$ARDUINO_UART" ],
-    "AllowedConnections": [ "global.azure-devices-provisioning.net", "matsujirushi-iothub.azure-devices.net" ],
+    "AllowedConnections": [ "matsujirushi-iothub.azure-devices.net" ],
     "DeviceAuthentication": "31908d60-fc8a-4403-b739-348ee8705d66",
     "AllowedApplicationConnections": []
   },
