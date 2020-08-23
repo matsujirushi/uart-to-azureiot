@@ -5,6 +5,7 @@
 #include "MessageParser.h"
 #include <assert.h>
 #include <string.h>
+#include <stdbool.h>
 
 static uint8_t Buffer[256];
 #define BUFFER_BEGIN    (Buffer)
@@ -39,7 +40,8 @@ void MessageParserDoWork(void)
         scanSpan = BytesSpanInit(ScannedSpanEnd, BeforeScanEnd);
         for (scanPtr = scanSpan.Begin; scanPtr != scanSpan.End; ++scanPtr) {
             if (*scanPtr == 0x0a) {
-                if (MessageReceivedHandler != NULL) MessageReceivedHandler(BytesSpanInit(BUFFER_BEGIN, scanPtr));
+                const bool withCr = BUFFER_BEGIN != scanPtr && scanPtr[-1] == 0x0d;
+                if (MessageReceivedHandler != NULL) MessageReceivedHandler(BytesSpanInit(BUFFER_BEGIN, withCr ? scanPtr - 1 : scanPtr));
 
                 const size_t beforeScanSize = (size_t)(scanSpan.End - (scanPtr + 1));
                 memmove(BUFFER_BEGIN, scanPtr + 1, beforeScanSize);
