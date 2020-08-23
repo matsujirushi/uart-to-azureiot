@@ -22,10 +22,15 @@ void loop()
   float humidity;
   GetTemperatureAndHumidityRandom(&temperature, &humidity);
   
+  String temperatureStr{ temperature, 1 };
+  temperatureStr.trim();
+  String humidityStr{ humidity, 0 };
+  humidityStr.trim();
+  
   String message;
-  message += "temperature:" + String(temperature, 1);
+  message += "temperature:" + temperatureStr;
   message += PART_SEPARATOR;
-  message += "humidity:" + String(humidity, 0);
+  message += "humidity:" + humidityStr;
   Serial.println(message);
   
   delay(INTERVAL);
