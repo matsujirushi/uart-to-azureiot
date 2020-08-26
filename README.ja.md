@@ -45,9 +45,9 @@ TBD
 
 1. Visual Studioのフォルダを開くで**app/uart-to-azureiot-hlapp**を開いてください。
 1. [app_manifest.json](app/uart-to-azureiot-hlapp/app_manifest.json)を書き換えてください。  
-**CmdArgs**の**--ConnectionType**を**Direct**にする。  
-**CmdArgs**の**--Hostname**にAzure IoT Hubのホスト名を書く。  
-**CmdArgs**の**--DeviceID**にMT3620 RDBのデバイスIDを小文字で書く。（`powershell -Command ((azsphere device show-attached)[0] -split ': ')[1].ToLower()`）  
+**CmdArgs**の **--ConnectionType**を**Direct**にする。  
+**CmdArgs**の **--Hostname**にAzure IoT Hubのホスト名を書く。  
+**CmdArgs**の **--DeviceID**にMT3620 RDBのデバイスIDを小文字で書く。（`powershell -Command ((azsphere device show-attached)[0] -split ': ')[1].ToLower()`）  
 **AllowedConnections**にAzure IoT Hubのホスト名を書く。  
 **DeviceAuthentication**にAzure SphereテナントIDを書く。（`azsphere tenant show-selected`）
 1. ビルド、実行してください。
